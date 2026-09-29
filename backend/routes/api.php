@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ExamController;
 use App\Http\Controllers\Api\ExamPaperController;
 use App\Http\Controllers\Api\QuestionController;
+use App\Http\Controllers\Api\RandomExamController;
 use App\Http\Controllers\Api\ScoreController;
 use Illuminate\Support\Facades\Route;
 
@@ -51,5 +52,17 @@ Route::middleware(['api', 'auth:sanctum', 'throttle:60,1'])->group(function () {
         Route::get('/statistics', [ScoreController::class, 'statistics']);
         Route::get('/ranking/{examPaper}', [ScoreController::class, 'ranking']);
         Route::get('/analysis/{examPaper}', [ScoreController::class, 'analysis']);
+    });
+
+    // 随机组卷（难度平衡）
+    Route::prefix('random-exams')->group(function () {
+        Route::get('/meta', [RandomExamController::class, 'meta']);
+        Route::post('/preview', [RandomExamController::class, 'preview']);
+        Route::post('/publish', [RandomExamController::class, 'publish']);
+        Route::get('/', [RandomExamController::class, 'index']);
+        Route::get('/{randomExam}/audit', [RandomExamController::class, 'audit']);
+        Route::get('/{randomExam}/export/sample', [RandomExamController::class, 'exportSample'])->middleware('query.token');
+        Route::get('/{randomExam}/export/papers', [RandomExamController::class, 'exportPapers'])->middleware('query.token');
+        Route::get('/{randomExam}/export/report', [RandomExamController::class, 'exportReport'])->middleware('query.token');
     });
 });

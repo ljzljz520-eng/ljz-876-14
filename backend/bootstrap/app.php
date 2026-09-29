@@ -22,7 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         
         $middleware->alias([
-            // Add any custom middleware aliases here
+            'query.token' => \App\Http\Middleware\AuthenticateFromQueryToken::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

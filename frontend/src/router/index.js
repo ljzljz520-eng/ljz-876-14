@@ -55,6 +55,24 @@ const routes = [
     name: 'Statistics',
     component: () => import('../views/statistics/Index.vue'),
     meta: { requiresAuth: true, roles: ['admin', 'teacher'] }
+  },
+  {
+    path: '/random-exams',
+    name: 'RandomExams',
+    component: () => import('../views/exam-config/Index.vue'),
+    meta: { requiresAuth: true, roles: ['admin', 'teacher'] }
+  },
+  {
+    path: '/random-exams/create',
+    name: 'RandomExamCreate',
+    component: () => import('../views/exam-config/Create.vue'),
+    meta: { requiresAuth: true, roles: ['admin', 'teacher'] }
+  },
+  {
+    path: '/random-exams/:id/audit',
+    name: 'RandomExamAudit',
+    component: () => import('../views/exam-config/Audit.vue'),
+    meta: { requiresAuth: true, roles: ['admin', 'teacher'] }
   }
 ]
 
