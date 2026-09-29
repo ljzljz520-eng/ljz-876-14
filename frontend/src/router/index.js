@@ -51,6 +51,12 @@ const routes = [
     meta: { requiresAuth: true, roles: ['admin', 'teacher'] }
   },
   {
+    path: '/paper-templates',
+    name: 'PaperTemplates',
+    component: () => import('../views/paper-templates/Index.vue'),
+    meta: { requiresAuth: true, roles: ['admin', 'teacher'] }
+  },
+  {
     path: '/statistics',
     name: 'Statistics',
     component: () => import('../views/statistics/Index.vue'),

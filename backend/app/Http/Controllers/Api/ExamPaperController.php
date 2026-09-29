@@ -122,6 +122,12 @@ class ExamPaperController extends Controller
             return response()->json(['error' => '只能删除自己创建的试卷'], 403);
         }
 
+        // 随机组卷试卷由模板生命周期管理，请到「随机组卷」中下线或删除模板
+        if ($examPaper->type === ExamPaper::TYPE_RANDOM
+            && \App\Models\ExamPaperTemplate::where('exam_paper_id', $examPaper->id)->exists()) {
+            return response()->json(['error' => '该试卷由随机组卷模板生成，请在「随机组卷」中下线或删除对应模板'], 422);
+        }
+
         $examPaper->questions()->detach();
         $examPaper->delete();
 

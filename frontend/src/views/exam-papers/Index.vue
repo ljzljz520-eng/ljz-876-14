@@ -26,12 +26,16 @@
         <tbody class="bg-white divide-y divide-gray-200">
           <tr v-for="paper in examPapers" :key="paper.id" class="hover:bg-gray-50">
             <td class="px-6 py-4">{{ paper.id }}</td>
-            <td class="px-6 py-4">{{ paper.title }}</td>
+            <td class="px-6 py-4">
+              {{ paper.title }}
+              <span v-if="paper.type === 'random'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-purple-100 text-purple-700">随机组卷</span>
+            </td>
             <td class="px-6 py-4">{{ paper.question_count }} 题</td>
             <td class="px-6 py-4">{{ paper.total_score }} 分</td>
             <td class="px-6 py-4">{{ paper.total_time }} 分钟</td>
             <td class="px-6 py-4 space-x-2">
-              <button @click="openQuestionModal(paper)" class="text-green-600 hover:text-green-900">管理题目</button>
+              <button v-if="paper.type !== 'random'" @click="openQuestionModal(paper)" class="text-green-600 hover:text-green-900">管理题目</button>
+              <span v-else class="text-gray-400 text-xs">由组卷模板管理</span>
               <button @click="openEditModal(paper)" class="text-indigo-600 hover:text-indigo-900">编辑</button>
               <button @click="deletePaper(paper)" class="text-red-600 hover:text-red-900">删除</button>
             </td>

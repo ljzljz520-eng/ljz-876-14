@@ -2,16 +2,24 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\PaperGenerationException;
 use App\Http\Controllers\Controller;
 use App\Models\ExamPaper;
+use App\Models\ExamPaperTemplate;
 use App\Models\ExamRecord;
 use App\Models\ExamRecordAnswer;
+use App\Models\GeneratedPaper;
 use App\Models\Question;
+use App\Services\PaperGeneratorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class ExamController extends Controller
 {
+    public function __construct(protected PaperGeneratorService $paperGenerator)
+    {
+    }
+
     public function index(Request $request)
     {
         $examPapers = ExamPaper::with('creator')
@@ -38,24 +46,21 @@ class ExamController extends Controller
             ]);
         }
 
+        // 随机组卷：为当前学生生成（或复用）专属试卷
+        $generated = null;
+        if ($examPaper->type === ExamPaper::TYPE_RANDOM) {
+            $generated = $this->generatedPaperFor($examPaper, $request->user()->id);
+            if ($generated instanceof \Illuminate\Http\JsonResponse) {
+                return $generated;
+            }
+        }
+
         $record = ExamRecord::create([
             'user_id' => $request->user()->id,
             'exam_paper_id' => $examPaper->id,
             'start_time' => now(),
             'status' => 'in_progress',
         ]);
-
-        $questions = $examPaper->questions()->get();
-
-        $questionsData = $questions->map(function ($q) {
-            return [
-                'id' => $q->id,
-                'type' => $q->type,
-                'title' => $q->title,
-                'options' => $q->options,
-                'score' => $q->pivot->score,
-            ];
-        });
 
         return response()->json([
             'message' => '考试开始',
@@ -66,7 +71,7 @@ class ExamController extends Controller
                 'total_time' => $examPaper->total_time,
                 'total_score' => $examPaper->total_score,
             ],
-            'questions' => $questionsData,
+            'questions' => $this->questionsForStudent($examPaper, $request->user()->id),
         ]);
     }
 
@@ -77,18 +82,6 @@ class ExamController extends Controller
             ->where('status', 'in_progress')
             ->firstOrFail();
 
-        $questions = $examPaper->questions()->get();
-
-        $questionsData = $questions->map(function ($q) {
-            return [
-                'id' => $q->id,
-                'type' => $q->type,
-                'title' => $q->title,
-                'options' => $q->options,
-                'score' => $q->pivot->score,
-            ];
-        });
-
         return response()->json([
             'exam_record' => $record,
             'exam_paper' => [
@@ -97,7 +90,7 @@ class ExamController extends Controller
                 'total_time' => $examPaper->total_time,
                 'total_score' => $examPaper->total_score,
             ],
-            'questions' => $questionsData,
+            'questions' => $this->questionsForStudent($examPaper, $request->user()->id),
         ]);
     }
 
@@ -120,17 +113,32 @@ class ExamController extends Controller
             ->where('status', 'in_progress')
             ->firstOrFail();
 
+        // 题目与分值：固定卷取自试卷关联，随机卷取自该学生的生成快照
+        if ($examPaper->type === ExamPaper::TYPE_RANDOM) {
+            $generated = GeneratedPaper::where('exam_paper_id', $examPaper->id)
+                ->where('user_id', $request->user()->id)
+                ->first();
+            if (!$generated) {
+                return response()->json(['message' => '未找到您的随机试卷，请重新开始考试'], 404);
+            }
+            $snapshot = collect($generated->question_snapshot ?? []);
+            $questionMap = Question::whereIn('id', $snapshot->pluck('id'))->get()->keyBy('id');
+            $scoreMap = $snapshot->keyBy('id')->map(fn ($item) => (float) $item['score']);
+        } else {
+            $questionMap = $examPaper->questions->keyBy('id');
+            $scoreMap = $examPaper->questions->keyBy('id')->map(fn ($q) => (float) $q->pivot->score);
+        }
+
         $totalScore = 0;
-        $questionMap = $examPaper->questions->keyBy('id');
 
         foreach ($request->answers as $answerData) {
             $question = $questionMap->get($answerData['question_id']);
-            if (!$question) {
+            if (!$question || !isset($scoreMap[$answerData['question_id']])) {
                 continue;
             }
 
             $isCorrect = $this->checkAnswer($question, $answerData['answer']);
-            $score = $isCorrect ? $question->pivot->score : 0;
+            $score = $isCorrect ? $scoreMap[$answerData['question_id']] : 0;
 
             ExamRecordAnswer::create([
                 'exam_record_id' => $record->id,
@@ -176,9 +184,93 @@ class ExamController extends Controller
 
         $record->load(['examPaper.questions', 'answers.question']);
 
+        // 随机卷：把该学生实际抽到的题目挂到 examPaper.questions 上，便于前端展示
+        $examPaper = $record->examPaper;
+        if ($examPaper && $examPaper->type === ExamPaper::TYPE_RANDOM) {
+            $generated = GeneratedPaper::where('exam_paper_id', $examPaper->id)
+                ->where('user_id', $record->user_id)
+                ->first();
+            if ($generated) {
+                $snapshot = collect($generated->question_snapshot ?? []);
+                $questions = Question::whereIn('id', $snapshot->pluck('id'))->get()->keyBy('id');
+                $ordered = $snapshot->map(function ($item) use ($questions) {
+                    $q = $questions->get($item['id']);
+                    if ($q) {
+                        $q->setRelation('pivot', (object) ['score' => $item['score'], 'sort_order' => $item['sort']]);
+                    }
+                    return $q;
+                })->filter()->values();
+                $examPaper->setRelation('questions', $ordered);
+            }
+        }
+
         return response()->json([
             'record' => $record,
         ]);
+    }
+
+    /**
+     * 学生本场考试使用的题目（不含答案）。
+     */
+    protected function questionsForStudent(ExamPaper $examPaper, int $userId): \Illuminate\Support\Collection
+    {
+        if ($examPaper->type === ExamPaper::TYPE_RANDOM) {
+            $generated = GeneratedPaper::where('exam_paper_id', $examPaper->id)
+                ->where('user_id', $userId)
+                ->first();
+            if (!$generated) {
+                return collect();
+            }
+            $snapshot = collect($generated->question_snapshot ?? []);
+            $questions = Question::whereIn('id', $snapshot->pluck('id'))->get()->keyBy('id');
+
+            return $snapshot->map(function ($item) use ($questions) {
+                $q = $questions->get($item['id']);
+                if (!$q) {
+                    return null;
+                }
+                return [
+                    'id' => $q->id,
+                    'type' => $q->type,
+                    'title' => $q->title,
+                    'options' => $q->options,
+                    'score' => $item['score'],
+                ];
+            })->filter()->values();
+        }
+
+        return $examPaper->questions()->get()->map(function ($q) {
+            return [
+                'id' => $q->id,
+                'type' => $q->type,
+                'title' => $q->title,
+                'options' => $q->options,
+                'score' => $q->pivot->score,
+            ];
+        });
+    }
+
+    /**
+     * 为随机卷生成（或复用）学生专属试卷；失败时返回 JSON 错误响应。
+     */
+    protected function generatedPaperFor(ExamPaper $examPaper, int $userId): GeneratedPaper|\Illuminate\Http\JsonResponse
+    {
+        $template = ExamPaperTemplate::where('exam_paper_id', $examPaper->id)
+            ->where('status', ExamPaperTemplate::STATUS_PUBLISHED)
+            ->first();
+
+        if (!$template) {
+            return response()->json(['message' => '该考试的组卷配置不存在或已下线'], 404);
+        }
+
+        try {
+            return $this->paperGenerator->getOrGenerate($template, $userId);
+        } catch (PaperGenerationException $e) {
+            return response()->json([
+                'message' => '组卷失败：' . $e->getMessage(),
+                'details' => $e->getDetails(),
+            ], 422);
+        }
     }
 
     protected function checkAnswer(Question $question, string $userAnswer): bool

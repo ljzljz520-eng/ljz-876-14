@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ExamController;
 use App\Http\Controllers\Api\ExamPaperController;
+use App\Http\Controllers\Api\PaperTemplateController;
 use App\Http\Controllers\Api\QuestionController;
 use App\Http\Controllers\Api\ScoreController;
 use Illuminate\Support\Facades\Route;
@@ -36,6 +37,20 @@ Route::middleware(['api', 'auth:sanctum', 'throttle:60,1'])->group(function () {
         Route::delete('/{examPaper}', [ExamPaperController::class, 'destroy']);
         Route::post('/{examPaper}/questions', [ExamPaperController::class, 'addQuestions']);
         Route::delete('/{examPaper}/questions/{question}', [ExamPaperController::class, 'removeQuestion']);
+    });
+
+    Route::prefix('paper-templates')->group(function () {
+        Route::get('/', [PaperTemplateController::class, 'index']);
+        Route::post('/', [PaperTemplateController::class, 'store']);
+        Route::get('/{paperTemplate}', [PaperTemplateController::class, 'show']);
+        Route::put('/{paperTemplate}', [PaperTemplateController::class, 'update']);
+        Route::delete('/{paperTemplate}', [PaperTemplateController::class, 'destroy']);
+        Route::get('/{paperTemplate}/precheck', [PaperTemplateController::class, 'precheck']);
+        Route::post('/{paperTemplate}/publish', [PaperTemplateController::class, 'publish']);
+        Route::post('/{paperTemplate}/unpublish', [PaperTemplateController::class, 'unpublish']);
+        Route::get('/{paperTemplate}/generated-papers', [PaperTemplateController::class, 'generatedPapers']);
+        Route::get('/{paperTemplate}/generated-papers/{generatedPaper}', [PaperTemplateController::class, 'showGeneratedPaper']);
+        Route::get('/{paperTemplate}/export', [PaperTemplateController::class, 'export']);
     });
 
     Route::prefix('exams')->group(function () {
